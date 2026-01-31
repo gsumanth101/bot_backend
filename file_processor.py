@@ -3,24 +3,11 @@ from typing import List, Optional
 from pathlib import Path
 import mimetypes
 
-# PDF processing
-from PyPDF2 import PdfReader
-import pypdf
-
-# Image processing
-from PIL import Image
-import pytesseract
-
-# Document processing
-from docx import Document
-
-# Excel and CSV processing
-import pandas as pd
-import openpyxl
-import xlrd
-
-# Utilities
+# Core utilities (always available)
 import aiofiles
+
+# Heavy dependencies - import only when needed to avoid serverless startup failures
+# These will be imported lazily in the methods that use them
 
 
 class FileProcessor:
@@ -67,6 +54,11 @@ class FileProcessor:
     @staticmethod
     async def _extract_from_pdf(file_path: str) -> str:
         """Extract text from PDF file"""
+        try:
+            from PyPDF2 import PdfReader
+        except ImportError:
+            raise Exception("PyPDF2 not installed. Install with: pip install PyPDF2")
+        
         text = ""
         try:
             reader = PdfReader(file_path)
@@ -80,6 +72,11 @@ class FileProcessor:
     async def _extract_from_docx(file_path: str) -> str:
         """Extract text from DOCX file"""
         try:
+            from docx import Document
+        except ImportError:
+            raise Exception("python-docx not installed. Install with: pip install python-docx")
+        
+        try:
             doc = Document(file_path)
             text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
         except Exception as e:
@@ -89,6 +86,18 @@ class FileProcessor:
     @staticmethod
     async def _extract_from_csv(file_path: str) -> str:
         """Extract text from CSV file"""
+        try:
+            import pandas as pd
+        except ImportError:
+            # Fallback to basic CSV reading if pandas not available
+            import csv
+            try:
+                async with aiofiles.open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = await f.read()
+                return f"CSV File: {Path(file_path).name}\n\n{content}"
+            except Exception as e:
+                raise Exception(f"Error reading CSV: {str(e)}")
+        
         try:
             df = pd.read_csv(file_path)
             # Convert DataFrame to a readable text format
@@ -103,116 +112,51 @@ class FileProcessor:
     
     @staticmethod
     async def _extract_from_excel(file_path: str) -> str:
-        """Extract text from Excel file with robust fallback mechanisms"""
-        file_extension = Path(file_path).suffix.lower()
+        """Extract text from Excel file - requires pandas (optional dependency)"""
+        try:
+            import pandas as pd
+        except ImportError:
+            raise Exception("Excel support requires pandas. Install with: pip install pandas openpyxl")
+        
         file_name = Path(file_path).name
-        
-        # First, try to detect if it's actually a text-based file (CSV/HTML) disguised as Excel
-        try:
-            with open(file_path, 'rb') as f:
-                first_bytes = f.read(1024)
-                # Check if it's actually HTML or CSV
-                if b'<html' in first_bytes.lower() or b'<table' in first_bytes.lower():
-                    # It's HTML disguised as Excel
-                    try:
-                        dfs = pd.read_html(file_path)
-                        if dfs:
-                            text = f"Excel/HTML File: {file_name}\n\n"
-                            for idx, df in enumerate(dfs):
-                                text += f"\n{'='*50}\n"
-                                text += f"Table {idx + 1}\n"
-                                text += f"Columns: {', '.join(df.columns.astype(str).tolist())}\n"
-                                text += f"Number of rows: {len(df)}\n\n"
-                                text += "Data:\n"
-                                if len(df) > 1000:
-                                    text += df.head(1000).to_string(index=False)
-                                    text += f"\n\n... (showing first 1000 of {len(df)} rows)"
-                                else:
-                                    text += df.to_string(index=False)
-                                text += f"\n{'='*50}\n"
-                            return text
-                    except:
-                        pass
-                
-                # Check if it might be a CSV
-                try:
-                    first_text = first_bytes.decode('utf-8', errors='ignore')
-                    if ',' in first_text or '\t' in first_text:
-                        # Try reading as CSV
-                        df = pd.read_csv(file_path)
-                        text = f"Excel/CSV File: {file_name}\n\n"
-                        text += f"Columns: {', '.join(df.columns.astype(str).tolist())}\n"
-                        text += f"Number of rows: {len(df)}\n\n"
-                        text += "Data:\n"
-                        if len(df) > 1000:
-                            text += df.head(1000).to_string(index=False)
-                            text += f"\n\n... (showing first 1000 of {len(df)} rows)"
-                        else:
-                            text += df.to_string(index=False)
-                        return text
-                except:
-                    pass
-        except:
-            pass
-        
-        # Now try standard Excel engines with proper file handle management
         text = f"Excel File: {file_name}\n\n"
-        approaches = [
-            ('openpyxl', 'openpyxl'),
-            ('xlrd', 'xlrd'),
-            ('pyxlsb', 'pyxlsb'),
-            ('auto', None),
-        ]
         
-        last_error = None
-        for approach_name, engine in approaches:
-            try:
-                if engine == 'pyxlsb' and file_extension != '.xlsb':
-                    continue
-                
-                # Use context manager to ensure file is closed
-                with pd.ExcelFile(file_path, engine=engine) as excel_file:
-                    for sheet_name in excel_file.sheet_names:
-                        df = pd.read_excel(excel_file, sheet_name=sheet_name)
-                        text += f"\n{'='*50}\n"
-                        text += f"Sheet: {sheet_name}\n"
-                        text += f"Columns: {', '.join(df.columns.astype(str).tolist())}\n"
-                        text += f"Number of rows: {len(df)}\n\n"
-                        text += "Data:\n"
-                        if len(df) > 1000:
-                            text += df.head(1000).to_string(index=False)
-                            text += f"\n\n... (showing first 1000 of {len(df)} rows)"
-                        else:
-                            text += df.to_string(index=False)
-                        text += f"\n{'='*50}\n"
-                
-                return text
-            except Exception as e:
-                last_error = e
-                continue
-        
-        # Last resort: try to read as plain text
         try:
-            async with aiofiles.open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = await f.read()
-                if content.strip():
-                    return f"Excel File (read as text): {file_name}\n\n{content[:50000]}"
-        except:
-            pass
-        
-        raise Exception(f"Could not read Excel file. The file may be corrupted, password-protected, or in an unsupported format. Last error: {str(last_error)}")
+            # Try reading Excel file
+            excel_file = pd.ExcelFile(file_path)
+            for sheet_name in excel_file.sheet_names:
+                df = pd.read_excel(excel_file, sheet_name=sheet_name)
+                text += f"\n{'='*50}\n"
+                text += f"Sheet: {sheet_name}\n"
+                text += f"Columns: {', '.join(df.columns.astype(str).tolist())}\n"
+                text += f"Number of rows: {len(df)}\n\n"
+                text += "Data:\n"
+                if len(df) > 1000:
+                    text += df.head(1000).to_string(index=False)
+                    text += f"\n\n... (showing first 1000 of {len(df)} rows)"
+                else:
+                    text += df.to_string(index=False)
+                text += f"\n{'='*50}\n"
+            return text
+        except Exception as e:
+            raise Exception(f"Error extracting text from Excel: {str(e)}")
     
     @staticmethod
     async def _extract_from_image(file_path: str) -> str:
-        """Extract text from image using OCR"""
+        """Extract text from image - OCR not supported in serverless (optional)"""
+        file_name = Path(file_path).name
+        try:
+            from PIL import Image
+        except ImportError:
+            return f"[Image file: {file_name}. Image processing requires Pillow library]"
+        
+        # Note: pytesseract requires system binaries and is not suitable for serverless
+        # Return basic info instead
         try:
             image = Image.open(file_path)
-            # Use pytesseract for OCR
-            text = pytesseract.image_to_string(image)
+            return f"[Image file: {file_name}, Size: {image.size[0]}x{image.size[1]}, Mode: {image.mode}. OCR not available in serverless environment]"
         except Exception as e:
-            # If OCR fails, return a description
-            text = f"[Image file: {Path(file_path).name}. OCR extraction failed: {str(e)}]"
-        return text
+            return f"[Image file: {file_name}. Could not process: {str(e)}]"
     
     @staticmethod
     def validate_file_extension(filename: str, allowed_extensions: set) -> bool:
