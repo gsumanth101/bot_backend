@@ -1,0 +1,46 @@
+# FastAPI and web framework
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+mangum
+
+# LangChain and AI
+langchain
+langchain-community
+langchain-groq
+langchain-huggingface
+langchain-core
+langchain-text-splitters
+groq
+
+# Embeddings and Vector Store
+sentence-transformers
+chromadb
+faiss-cpu
+
+# File processing
+PyPDF2
+pypdf
+python-docx
+Pillow
+pytesseract
+pandas
+openpyxl
+xlrd
+pyxlsb
+lxml
+html5lib
+
+# Text processing
+tiktoken
+beautifulsoup4
+
+# OCR and image processing
+pdf2image
+opencv-python
+
+# Utilities
+pydantic
+pydantic-settings
+aiofiles
