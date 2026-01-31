@@ -1,0 +1,42 @@
+# Vercel ignore - exclude large files from deployment
+
+# Python cache and environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+ENV/
+env/
+.Python
+
+# HuggingFace model cache (models will be downloaded at runtime)
+.cache/
+transformers_cache/
+sentence_transformers/
+
+# Vector stores and uploads (runtime only)
+uploads/
+vector_store/
+*.faiss
+*.pkl
+
+# Development files
+.env
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+test.py
+README.md
+
+# Large dependencies that should be handled at runtime
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.h5

@@ -23,20 +23,35 @@ class RAGPipeline:
     
     def _initialize_components(self):
         """Initialize RAG components"""
-        # Initialize embeddings (using free HuggingFace embeddings)
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        # Configure cache directory for serverless environments (Vercel uses /tmp)
+        cache_dir = os.environ.get('SENTENCE_TRANSFORMERS_HOME', '/tmp/sentence_transformers')
+        os.makedirs(cache_dir, exist_ok=True)
         
-        # Initialize text splitter
+        # Lazy initialization - embeddings will be loaded when first needed
+        # This prevents loading during deployment/build phase
+        self.embeddings = None
+        
+        # Initialize text splitter (lightweight, no downloads needed)
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
             length_function=len,
             separators=["\n\n", "\n", " ", ""]
         )
+    
+    def _get_embeddings(self):
+        """Lazy-load embeddings only when needed"""
+        if self.embeddings is None:
+            cache_dir = os.environ.get('SENTENCE_TRANSFORMERS_HOME', '/tmp/sentence_transformers')
+            os.makedirs(cache_dir, exist_ok=True)
+            
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                cache_folder=cache_dir,
+                encode_kwargs={'normalize_embeddings': True}
+            )
+        return self.embeddings
     
     def process_documents(self, texts: List[str], metadata: Optional[List[dict]] = None) -> str:
         """
@@ -61,8 +76,9 @@ class RAGPipeline:
         if not split_docs:
             raise ValueError("No content extracted from documents")
         
-        # Create vector store
-        self.vector_store = FAISS.from_documents(split_docs, self.embeddings)
+        # Create vector store with lazy-loaded embeddings
+        embeddings = self._get_embeddings()
+        self.vector_store = FAISS.from_documents(split_docs, embeddings)
         
         # Generate session ID
         self.session_id = str(uuid.uuid4())
